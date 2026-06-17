@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir --upgrade \
 	wsproto==1.2.0 \
 	pydantic==1.10.7 \
 	uvicorn==0.22.0 \
-	python-dateutil==2.8.2 \
+	python-dateutil==2.9.0.post0 \
  	PyYAML==6.0.2 \
 	bcrypt==4.0.1 \
     	pynetbox==7.4.1

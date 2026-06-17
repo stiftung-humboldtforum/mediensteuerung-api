@@ -1,6 +1,7 @@
+import asyncio
 import json
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 
 from beanie import init_beanie
@@ -19,22 +20,31 @@ from schemas import UserCreate, UserRead, UserUpdate
 import users
 from users import auth_backend, current_active_admin, fastapi_users, bearer_transport
 
-from misc import authenticate_token
+from misc import authenticate_token, logger
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # fastapi 0.137 + fastapi-mqtt 2.x: use lifespan instead of @on_event /
     # mqtt.init_app. Handlers (on_connect in mqtt.py, on_message below) are
     # registered at import time, before this runs.
-    await mqtt.mqtt_startup()
+    # DB first (independent of MQTT) so /healthcheck + auth come up even when the
+    # broker is briefly unreachable. The initial MQTT connect has no timeout in
+    # gmqtt, so it's best-effort + time-bounded here — a boot-time broker outage
+    # must not wedge startup; gmqtt reconnects in the background.
     await init_beanie(
         database=db,
         document_models=[
             User,
         ],
     )
+    try:
+        await asyncio.wait_for(mqtt.mqtt_startup(), timeout=10)
+    except Exception as e:
+        logger.error(
+            'MQTT broker unavailable at startup (%s); continuing, gmqtt will retry', e)
     yield
-    await mqtt.mqtt_shutdown()
+    with suppress(Exception):
+        await mqtt.mqtt_shutdown()
 
 
 app = FastAPI(lifespan=lifespan)

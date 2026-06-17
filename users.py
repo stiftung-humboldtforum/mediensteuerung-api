@@ -13,6 +13,7 @@ from fastapi_users.authentication import (
 from fastapi_users_db_beanie import BeanieUserDatabase, ObjectIDIDMixin
 
 from db import db, User, get_user_db
+from schemas import UserRead
 
 SECRET = os.environ['API_SECRET']
 
@@ -68,7 +69,7 @@ router = APIRouter(
     prefix='/users', dependencies=[Depends(current_active_admin)])
 
 
-@router.get('/')
+@router.get('/', response_model=list[UserRead])
 async def list_users(
     is_active: bool = Query(None),  # Optional query parameter "is_active"
 ):

@@ -10,7 +10,7 @@ from fastapi_users.authentication import (
     BearerTransport,
     JWTStrategy,
 )
-from fastapi_users.db import BeanieUserDatabase, ObjectIDIDMixin
+from fastapi_users_db_beanie import BeanieUserDatabase, ObjectIDIDMixin
 
 from db import db, User, get_user_db
 

@@ -1,5 +1,6 @@
 from typing import Generic, Optional
 from beanie import PydanticObjectId
+from pydantic import ConfigDict
 from fastapi_users import models
 from fastapi_users.schemas import CreateUpdateDictModel
 
@@ -7,14 +8,15 @@ from fastapi_users.schemas import CreateUpdateDictModel
 class BaseUser(CreateUpdateDictModel, Generic[models.ID]):
     """Base User model."""
 
+    # Keep email as a plain str (NOT EmailStr): the system/admin accounts use
+    # non-FQDN addresses like system@localhost that EmailStr would reject.
     id: models.ID
     email: str
     is_active: bool = True
     is_superuser: bool = False
     is_verified: bool = False
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BaseUserCreate(CreateUpdateDictModel):

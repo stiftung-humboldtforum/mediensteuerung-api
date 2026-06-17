@@ -1,5 +1,6 @@
 import json
 import os
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from beanie import init_beanie
@@ -20,7 +21,23 @@ from users import auth_backend, current_active_admin, fastapi_users, bearer_tran
 
 from misc import authenticate_token
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # fastapi 0.137 + fastapi-mqtt 2.x: use lifespan instead of @on_event /
+    # mqtt.init_app. Handlers (on_connect in mqtt.py, on_message below) are
+    # registered at import time, before this runs.
+    await mqtt.mqtt_startup()
+    await init_beanie(
+        database=db,
+        document_models=[
+            User,
+        ],
+    )
+    yield
+    await mqtt.mqtt_shutdown()
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(HTTPSRedirectMiddleware)
 # Restrict CORS via CORS_ALLOW_ORIGINS (comma-separated) when credentials are
 # used; defaults to '*' for backward compatibility. Wildcard + credentials is
@@ -34,18 +51,6 @@ app.add_middleware(
     allow_methods=['*'],
     allow_headers=['*']
 )
-
-
-@app.on_event('startup')
-async def on_startup():
-    await init_beanie(
-        database=db,
-        document_models=[
-            User,
-        ],
-    )
-
-mqtt.init_app(app)
 
 
 @mqtt.on_message()

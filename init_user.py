@@ -4,7 +4,6 @@ import getpass
 
 import contextlib
 
-from pydantic import EmailStr
 from beanie import init_beanie
 
 from db import db, User, get_user_db
@@ -16,7 +15,7 @@ get_user_db_context = contextlib.asynccontextmanager(get_user_db)
 get_user_manager_context = contextlib.asynccontextmanager(get_user_manager)
 
 
-async def create_user(email: EmailStr, password: str, is_superuser: bool = False):
+async def create_user(email: str, password: str, is_superuser: bool = False):
     try:
         await init_beanie(
             database=db,
@@ -47,7 +46,7 @@ def get_userpass():
 
 async def main():
     print('Creating system user...')
-    username = EmailStr(os.environ.get('API_SYSTEM_USERNAME'))
+    username = os.environ.get('API_SYSTEM_USERNAME')
     password = str(os.environ.get('API_SYSTEM_PASSWORD'))
     # create_user already swallows UserAlreadyExists; let any other failure
     # surface instead of masking it with a broad except.

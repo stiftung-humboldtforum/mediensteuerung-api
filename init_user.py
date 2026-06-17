@@ -49,10 +49,9 @@ async def main():
     print('Creating system user...')
     username = EmailStr(os.environ.get('API_SYSTEM_USERNAME'))
     password = str(os.environ.get('API_SYSTEM_PASSWORD'))
-    try:
-        await create_user(username, password, is_superuser=True)
-    except Exception as e:
-        print(e)
+    # create_user already swallows UserAlreadyExists; let any other failure
+    # surface instead of masking it with a broad except.
+    await create_user(username, password, is_superuser=True)
     print('Please create your admin account')
     username = input('Email: ')
     password = get_userpass()

@@ -45,8 +45,11 @@ bearer_transport = BearerTransport(tokenUrl='auth/jwt/login')
 
 
 def get_jwt_strategy() -> JWTStrategy:
-    # geändert DA: Life time 1 Jahr
-    return JWTStrategy(secret=SECRET, lifetime_seconds=365*24*60*60)
+    # JWT lifetime in seconds; defaults to 1 year for backward compatibility.
+    # Set JWT_LIFETIME_SECONDS (e.g. 3600) to shorten and rely on the existing
+    # /auth/jwt/refresh endpoint.
+    lifetime = int(os.getenv('JWT_LIFETIME_SECONDS', 365 * 24 * 60 * 60))
+    return JWTStrategy(secret=SECRET, lifetime_seconds=lifetime)
 
 
 auth_backend = AuthenticationBackend(

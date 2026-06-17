@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Annotated
 
 from beanie import init_beanie
@@ -21,9 +22,14 @@ from misc import authenticate_token
 
 app = FastAPI()
 app.add_middleware(HTTPSRedirectMiddleware)
+# Restrict CORS via CORS_ALLOW_ORIGINS (comma-separated) when credentials are
+# used; defaults to '*' for backward compatibility. Wildcard + credentials is
+# spec-invalid, so set an explicit origin allowlist in production.
+_cors = os.getenv('CORS_ALLOW_ORIGINS', '*').strip()
+_allow_origins = ['*'] if _cors == '*' else [o.strip() for o in _cors.split(',') if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=_allow_origins,
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*']

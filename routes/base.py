@@ -27,22 +27,38 @@ async def on_reload():
 
 
 data_loader = None
+_loop: asyncio.AbstractEventLoop | None = None
 
 
 def create_dataloader():
     global data_loader
     # Stop the previous loader before replacing it so a failed/slow loader's
-    # threads don't accumulate (on_error re-invokes this).
+    # threads don't accumulate (on_error re-invokes this from its worker thread).
     if data_loader is not None:
         data_loader.stop()
     logger.debug('Creating DataLoader instance')
-    loop = asyncio.get_event_loop()
-    data_loader = DataLoader(loop, on_reload=on_reload,
+    data_loader = DataLoader(_loop, on_reload=on_reload,
                              on_error=create_dataloader)
     data_loader.start()
 
 
-create_dataloader()
+def start_dataloader(loop: asyncio.AbstractEventLoop):
+    # Capture the RUNNING server loop here (from the lifespan), not at import.
+    # uvicorn 0.47+ imports the ASGI app eagerly in the parent process before the
+    # server loop exists, and on Python 3.12 a module-scope asyncio.get_event_loop()
+    # binds a throwaway loop that never runs — so run_coroutine_threadsafe(on_reload,
+    # that_loop) from the NetBox worker thread would silently never fire (no MQTT
+    # data-refresh publish, no WS 'refresh' broadcast).
+    global _loop
+    _loop = loop
+    create_dataloader()
+
+
+def stop_dataloader():
+    global data_loader
+    if data_loader is not None:
+        data_loader.stop()
+        data_loader = None
 
 
 async def data_refresh():

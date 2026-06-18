@@ -42,7 +42,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(
             'MQTT broker unavailable at startup (%s); continuing, gmqtt will retry', e)
+    # Start the NetBox DataLoader bound to the RUNNING server loop. Must be done
+    # here (not at import): uvicorn 0.47+ eagerly imports the app before the loop
+    # exists, so an import-time get_event_loop() would bind a dead loop and the
+    # data-refresh broadcast/MQTT publish would silently never fire.
+    base.start_dataloader(asyncio.get_running_loop())
     yield
+    base.stop_dataloader()
     with suppress(Exception):
         await mqtt.mqtt_shutdown()
 

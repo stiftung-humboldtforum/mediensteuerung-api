@@ -62,6 +62,8 @@ def stop_dataloader():
 
 
 async def data_refresh():
+    if data_loader is None:
+        raise HTTPException(status_code=503, detail='DataLoader not ready')
     data_loader.reload()
 
 

@@ -49,7 +49,7 @@ def get_jwt_strategy() -> JWTStrategy:
     # JWT lifetime in seconds; defaults to 1 year for backward compatibility.
     # Set JWT_LIFETIME_SECONDS (e.g. 3600) to shorten and rely on the existing
     # /auth/jwt/refresh endpoint.
-    lifetime = int(os.getenv('JWT_LIFETIME_SECONDS', 365 * 24 * 60 * 60))
+    lifetime = int(os.getenv('JWT_LIFETIME_SECONDS') or 365 * 24 * 60 * 60)
     return JWTStrategy(secret=SECRET, lifetime_seconds=lifetime)
 
 

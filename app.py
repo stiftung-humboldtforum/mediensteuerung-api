@@ -58,7 +58,7 @@ app.add_middleware(HTTPSRedirectMiddleware)
 # Restrict CORS via CORS_ALLOW_ORIGINS (comma-separated) when credentials are
 # used; defaults to '*' for backward compatibility. Wildcard + credentials is
 # spec-invalid, so set an explicit origin allowlist in production.
-_cors = os.getenv('CORS_ALLOW_ORIGINS', '*').strip()
+_cors = (os.getenv('CORS_ALLOW_ORIGINS') or '*').strip()
 _allow_origins = ['*'] if _cors == '*' else [o.strip() for o in _cors.split(',') if o.strip()]
 app.add_middleware(
     CORSMiddleware,

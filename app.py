@@ -31,6 +31,21 @@ async def lifespan(app: FastAPI):
     # broker is briefly unreachable. The initial MQTT connect has no timeout in
     # gmqtt, so it's best-effort + time-bounded here — a boot-time broker outage
     # must not wedge startup; gmqtt reconnects in the background.
+    # Reconcile a legacy email index before beanie (re)creates it. Older
+    # fastapi-users-db-beanie created `case_insensitive_email_index` WITHOUT
+    # unique:true; the current version requires unique:true, and Mongo refuses to
+    # re-create an index of the same name with a different spec
+    # (IndexKeySpecsConflict) -> init_beanie would crash on restored/old data.
+    # Drop the legacy non-unique index so init_beanie recreates it as unique.
+    # (If case-insensitive duplicate emails exist, the unique build fails with
+    # E11000 — a data fix for the operator, not something we can resolve here.)
+    with suppress(Exception):
+        _user_coll = db['User']
+        _idx = (await _user_coll.index_information()).get('case_insensitive_email_index')
+        if _idx is not None and not _idx.get('unique'):
+            await _user_coll.drop_index('case_insensitive_email_index')
+            logger.warning('Dropped legacy non-unique case_insensitive_email_index; '
+                           'beanie will recreate it as unique')
     await init_beanie(
         database=db,
         document_models=[
@@ -165,6 +180,9 @@ app.include_router(calendar.router, prefix='/api', tags=['api'])
 app.include_router(knx.router, prefix='/api', tags=['api'])
 
 app.include_router(base.router, prefix='/api', tags=['api'])
+
+# /ws on its own router WITHOUT the HTTP OAuth2 dependency (see base.ws_router).
+app.include_router(base.ws_router, prefix='/api', tags=['api'])
 
 
 class SPAStaticFiles(StaticFiles):

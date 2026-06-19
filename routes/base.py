@@ -15,6 +15,15 @@ manager = ConnectionManager()
 
 router = APIRouter(dependencies=[Depends(current_active_user)])
 
+# The WebSocket route must NOT inherit the HTTP OAuth2 security dependency
+# (current_active_user -> OAuth2PasswordBearer). On a WebSocket, fastapi 0.137
+# invokes the bearer scheme without a Request -> "OAuth2PasswordBearer.__call__()
+# missing 'request'" and the handshake dies (and, via the shared router, breaks
+# authenticated /api/ HTTP calls too -> manager 503 / KeyError 'devices').
+# fastapi 0.95 tolerated this; 0.137 does not. /ws self-authenticates via the
+# token query param, so it lives on its own dependency-free router.
+ws_router = APIRouter()
+
 
 async def on_reload():
     mqtt.publish('api/data-refresh', qos=1)
@@ -108,7 +117,7 @@ async def method(target: MethodTarget, method_name, params: Annotated[dict, Body
                  qos=1)
 
 
-@router.websocket('/ws')
+@ws_router.websocket('/ws')
 async def ws(websocket: WebSocket, token: str = Query(...),
              jwt_strategy: JWTStrategy = Depends(get_jwt_strategy),
              user_manager: UserManager = Depends(get_user_manager)):

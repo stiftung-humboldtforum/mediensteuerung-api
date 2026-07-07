@@ -1,4 +1,4 @@
-fastapi==0.138.1
+fastapi==0.139.0
 fastapi-mqtt==2.2.0
 fastapi-users[beanie]==15.0.5
 beanie==2.1.0

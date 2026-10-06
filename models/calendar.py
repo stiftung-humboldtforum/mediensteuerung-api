@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Optional
 from bson import ObjectId
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from . import PyObjectId
 
@@ -21,7 +21,7 @@ class ExtendedPropsModel(BaseModel):
     id: int = Field()
     type: ItemType = Field()
     label: str = Field()
-    description: Optional[str] = Field()
+    description: Optional[str] = None
     actions: EventActionsModel = Field()
 
 
@@ -29,22 +29,23 @@ class EventModel(BaseModel):
     id: PyObjectId = Field(alias='_id')
     title: str = Field()
     start: datetime = Field()
-    end: Optional[datetime] = Field()
+    end: Optional[datetime] = None
     allDay: bool = Field()
-    rrule: Optional[str] = Field()
-    duration: Optional[float] = Field()
+    rrule: Optional[str] = None
+    duration: Optional[float] = None
     extendedProps: ExtendedPropsModel = Field()
 
-    class Config:
-        allow_population_by_field_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str,
-                         datetime: lambda date: date.isoformat()}
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: str,
+                       datetime: lambda date: date.isoformat()},
+    )
 
 
 class UpdateEventModel(BaseModel):
-    title: Optional[str]
-    start: Optional[datetime]
-    end: Optional[datetime]
-    allDay: Optional[bool]
-    extendedProps: Optional[ExtendedPropsModel]
+    title: Optional[str] = None
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+    allDay: Optional[bool] = None
+    extendedProps: Optional[ExtendedPropsModel] = None

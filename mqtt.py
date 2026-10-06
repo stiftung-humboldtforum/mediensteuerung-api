@@ -32,4 +32,6 @@ def mqtt_on_connect(*_):
     mqtt.client.subscribe('manager/device_event', qos=0)
     mqtt.client.subscribe('manager/tag_event', qos=0)
     mqtt.client.subscribe('manager/location_event', qos=0)
-    mqtt.client.subscribe('knx/#', qos=0)
+    # Only knx/switch/# is handled by on_message; subscribing to the broader
+    # knx/# would rebroadcast unrelated knx/* topics raw (without a target).
+    mqtt.client.subscribe('knx/switch/#', qos=0)

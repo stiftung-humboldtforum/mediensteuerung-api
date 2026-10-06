@@ -10,9 +10,10 @@ from fastapi_users.authentication import (
     BearerTransport,
     JWTStrategy,
 )
-from fastapi_users.db import BeanieUserDatabase, ObjectIDIDMixin
+from fastapi_users_db_beanie import BeanieUserDatabase, ObjectIDIDMixin
 
 from db import db, User, get_user_db
+from schemas import UserRead
 
 SECRET = os.environ['API_SECRET']
 
@@ -45,7 +46,11 @@ bearer_transport = BearerTransport(tokenUrl='auth/jwt/login')
 
 
 def get_jwt_strategy() -> JWTStrategy:
-    return JWTStrategy(secret=SECRET, lifetime_seconds=48*60*60)
+    # JWT lifetime in seconds; defaults to 1 year for backward compatibility.
+    # Set JWT_LIFETIME_SECONDS (e.g. 3600) to shorten and rely on the existing
+    # /auth/jwt/refresh endpoint.
+    lifetime = int(os.getenv('JWT_LIFETIME_SECONDS') or 365 * 24 * 60 * 60)
+    return JWTStrategy(secret=SECRET, lifetime_seconds=lifetime)
 
 
 auth_backend = AuthenticationBackend(
@@ -64,7 +69,7 @@ router = APIRouter(
     prefix='/users', dependencies=[Depends(current_active_admin)])
 
 
-@router.get('/')
+@router.get('/', response_model=list[UserRead])
 async def list_users(
     is_active: bool = Query(None),  # Optional query parameter "is_active"
 ):

@@ -1,4 +1,7 @@
+import asyncio
 import json
+import os
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated
 
 from beanie import init_beanie
@@ -17,29 +20,68 @@ from schemas import UserCreate, UserRead, UserUpdate
 import users
 from users import auth_backend, current_active_admin, fastapi_users, bearer_transport
 
-from misc import authenticate_token
+from misc import authenticate_token, logger
 
-app = FastAPI()
-app.add_middleware(HTTPSRedirectMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=['*'],
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*']
-)
-
-
-@app.on_event('startup')
-async def on_startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # fastapi 0.137 + fastapi-mqtt 2.x: use lifespan instead of @on_event /
+    # mqtt.init_app. Handlers (on_connect in mqtt.py, on_message below) are
+    # registered at import time, before this runs.
+    # DB first (independent of MQTT) so /healthcheck + auth come up even when the
+    # broker is briefly unreachable. The initial MQTT connect has no timeout in
+    # gmqtt, so it's best-effort + time-bounded here — a boot-time broker outage
+    # must not wedge startup; gmqtt reconnects in the background.
+    # Reconcile a legacy email index before beanie (re)creates it. Older
+    # fastapi-users-db-beanie created `case_insensitive_email_index` WITHOUT
+    # unique:true; the current version requires unique:true, and Mongo refuses to
+    # re-create an index of the same name with a different spec
+    # (IndexKeySpecsConflict) -> init_beanie would crash on restored/old data.
+    # Drop the legacy non-unique index so init_beanie recreates it as unique.
+    # (If case-insensitive duplicate emails exist, the unique build fails with
+    # E11000 — a data fix for the operator, not something we can resolve here.)
+    with suppress(Exception):
+        _user_coll = db['User']
+        _idx = (await _user_coll.index_information()).get('case_insensitive_email_index')
+        if _idx is not None and not _idx.get('unique'):
+            await _user_coll.drop_index('case_insensitive_email_index')
+            logger.warning('Dropped legacy non-unique case_insensitive_email_index; '
+                           'beanie will recreate it as unique')
     await init_beanie(
         database=db,
         document_models=[
             User,
         ],
     )
+    try:
+        await asyncio.wait_for(mqtt.mqtt_startup(), timeout=10)
+    except Exception as e:
+        logger.error(
+            'MQTT broker unavailable at startup (%s); continuing, gmqtt will retry', e)
+    # Start the NetBox DataLoader bound to the RUNNING server loop. Must be done
+    # here (not at import): uvicorn 0.47+ eagerly imports the app before the loop
+    # exists, so an import-time get_event_loop() would bind a dead loop and the
+    # data-refresh broadcast/MQTT publish would silently never fire.
+    base.start_dataloader(asyncio.get_running_loop())
+    yield
+    base.stop_dataloader()
+    with suppress(Exception):
+        await mqtt.mqtt_shutdown()
 
-mqtt.init_app(app)
+
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(HTTPSRedirectMiddleware)
+# Restrict CORS via CORS_ALLOW_ORIGINS (comma-separated) when credentials are
+# used; defaults to '*' for backward compatibility. Wildcard + credentials is
+# spec-invalid, so set an explicit origin allowlist in production.
+_cors = (os.getenv('CORS_ALLOW_ORIGINS') or '*').strip()
+_allow_origins = ['*'] if _cors == '*' else [o.strip() for o in _cors.split(',') if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allow_origins,
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*']
+)
 
 
 @mqtt.on_message()
@@ -138,6 +180,9 @@ app.include_router(calendar.router, prefix='/api', tags=['api'])
 app.include_router(knx.router, prefix='/api', tags=['api'])
 
 app.include_router(base.router, prefix='/api', tags=['api'])
+
+# /ws on its own router WITHOUT the HTTP OAuth2 dependency (see base.ws_router).
+app.include_router(base.ws_router, prefix='/api', tags=['api'])
 
 
 class SPAStaticFiles(StaticFiles):

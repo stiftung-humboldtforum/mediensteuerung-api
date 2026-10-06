@@ -7,6 +7,10 @@ class ConnectionManager:
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
+        self.register(websocket)
+
+    def register(self, websocket: WebSocket):
+        # Add an already-accepted socket to the broadcast pool (used after auth).
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
@@ -24,8 +28,13 @@ class ConnectionManager:
         await websocket.send_text(message)
 
     async def broadcast(self, message: str):
-        for websocket in self.active_connections:
+        # Iterate a copy and remove dead sockets afterwards — disconnecting during
+        # iteration over the live list skips the socket after each dead one.
+        dead = []
+        for websocket in list(self.active_connections):
             try:
                 await websocket.send_text(message)
             except:
-                self.disconnect(websocket)
+                dead.append(websocket)
+        for websocket in dead:
+            self.disconnect(websocket)

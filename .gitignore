@@ -160,3 +160,12 @@ cython_debug/
 #.idea/
 
 static
+
+# Operational data / secrets — never commit (present only on the live system)
+*.pem
+ssl/
+netbox_export/
+ip-addresses.json
+home-db.json
+mock-db.json
+test-db.json

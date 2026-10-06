@@ -14,7 +14,9 @@ router = APIRouter(dependencies=[Depends(current_active_user)])
 @router.get('/knx/get_events')
 async def get_events():
     events = []
-    aggregate_events = db['events'].aggregate(
+    # pymongo's async aggregate() is a coroutine (must be awaited) — unlike
+    # find(), and unlike motor's sync-returning aggregate().
+    aggregate_events = await db['events'].aggregate(
         [{'$sort': {'data.event.time': pymongo.DESCENDING}}])
     async for event in aggregate_events:
         event['_id'] = str(event['_id'])

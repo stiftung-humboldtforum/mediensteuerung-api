@@ -3,10 +3,16 @@ import os
 from threading import Lock, Thread
 import time
 from typing import Callable
+
 import pynetbox
+from fastapi import HTTPException
+
 from misc import logger
 
 max_netbox_fetch_time = 60 * 5
+# Bounded cold-start wait for the gate below — fail fast (503) so callers retry
+# instead of blocking up to the full fetch window and hitting their own timeout.
+init_wait_timeout = 30
 
 
 class DataLoader(Thread):
@@ -34,9 +40,19 @@ class DataLoader(Thread):
         self._is_fetching = False
         self._start_fetch_time = time.time()
         self._end_fetch_time = time.time()
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
 
     async def __aenter__(self):
+        # Bounded wait: on cold start, fail fast with 503 so the caller retries
+        # rather than blocking for the whole fetch window past its own timeout.
+        deadline = time.monotonic() + init_wait_timeout
         while not self.is_initialized:
+            if time.monotonic() > deadline:
+                raise HTTPException(status_code=503,
+                                    detail='Inventory not loaded yet')
             await asyncio.sleep(1)
         return self
 
@@ -45,34 +61,32 @@ class DataLoader(Thread):
 
     @property
     def devices(self):
-        self.lock.acquire()
-        result = self._data['devices']
-        self.lock.release()
-        return result
+        with self.lock:
+            return self._data['devices']
 
     @property
     def tags(self):
-        self.lock.acquire()
-        result = self._data['tags']
-        self.lock.release()
-        return result
+        with self.lock:
+            return self._data['tags']
 
     @property
     def locations(self):
-        self.lock.acquire()
-        result = self._data['locations']
-        self.lock.release()
-        return result
+        with self.lock:
+            return self._data['locations']
 
     def reload(self):
         self.needs_reload = True
 
     def _watchdog(self):
-        while True:
+        while not self._stop:
             if self._is_fetching and (time.time() - self._start_fetch_time) > max_netbox_fetch_time:
                 logger.error('DataLoader fetch took too long.')
+                # Fire on_error once and stop this loader; on_error spins up a
+                # fresh one. Looping here would spawn a new loader every second.
+                self._stop = True
                 if self.on_error:
                     self.on_error()
+                return
             time.sleep(1)
 
     def run(self):
@@ -80,19 +94,23 @@ class DataLoader(Thread):
         nb = pynetbox.api(os.getenv('NETBOX_API_URL'),
                           token=apiToken,
                           threading=True)
-        nb.http_session.verify = False
+        # Verify TLS against a CA bundle when NETBOX_CA_BUNDLE is set; otherwise
+        # keep the previous (unverified) behaviour so existing deployments don't
+        # break. Set NETBOX_CA_BUNDLE to the internal CA path to harden this.
+        nb.http_session.verify = os.getenv('NETBOX_CA_BUNDLE') or False
         try:
             nb.openapi()
         except Exception as e:
             logger.exception(e)
             if self.on_error:
+                time.sleep(5)  # debounce respawn while NetBox is unreachable
                 self.on_error()
-                return
+            return
 
         self._watchdog_thread = Thread(target=self._watchdog, daemon=True)
         self._watchdog_thread.start()
 
-        while True:
+        while not self._stop:
             if self.needs_reload or not self.is_initialized:
                 self._is_fetching = True
                 self._start_fetch_time = time.time()
@@ -125,24 +143,29 @@ class DataLoader(Thread):
                 time.sleep(60)
 
     def _get_devices(self, rawDevices) -> list:
-        devices = [
-            {
-                **dict(device),
-                'interfaces': [dict(interface) for interface in self.intermediate_data['interfaces'] if interface['device']['id'] == device['id']],
-            } for device in rawDevices
-        ]
-        for i, device in enumerate(devices):
-            ip_address = [
-                ip_address for ip_address in self.intermediate_data['ip_addresses'] if ip_address['id'] == device['primary_ip']['id']][0]
+        devices = []
+        for raw in rawDevices:
+            device = {
+                **dict(raw),
+                'interfaces': [dict(interface) for interface in self.intermediate_data['interfaces'] if interface['device']['id'] == raw['id']],
+            }
+            # Guard the primary_ip lookup: if the IP isn't in the fetched set
+            # (filtered/deleted between calls), skip the device instead of
+            # IndexError-ing the whole build.
+            ip_address = next(
+                (ip for ip in self.intermediate_data['ip_addresses']
+                 if ip['id'] == device['primary_ip']['id']), None)
+            if ip_address is None:
+                logger.warning('No primary IP for device %s; skipping',
+                               device.get('name'))
+                continue
             dev_power_ports = [
-                power_port for power_port in self.intermediate_data['power_ports'] if power_port['device']['id'] == device['id']]
+                power_port for power_port in self.intermediate_data['power_ports'] if power_port['device']['id'] == raw['id']]
             [[peer.full_details() for peer in p.link_peers]
                 for p in dev_power_ports]
-            devices[i]['power_ports'] = [
-                dict(port) for port in dev_power_ports]
-            devices[i]['primary_ip'] = dict(ip_address)
-            devices[i]['tags'] = ip_address['tags']
-
-        devices = [device for device in devices
-                   if device['status']['value'] == 'active']
+            device['power_ports'] = [dict(port) for port in dev_power_ports]
+            device['primary_ip'] = dict(ip_address)
+            device['tags'] = ip_address['tags']
+            if device['status']['value'] == 'active':
+                devices.append(device)
         return devices

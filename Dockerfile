@@ -12,5 +12,6 @@ RUN pip install --no-cache-dir --upgrade \
 	python-dateutil==2.8.2 \
  	PyYAML==6.0.2 \
 	bcrypt==4.0.1 \
+	fastapi-users-db-beanie==3.0.0 \
     	pynetbox==7.4.1
 WORKDIR /api

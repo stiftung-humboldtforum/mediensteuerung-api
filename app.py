@@ -11,7 +11,7 @@ from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from mqtt import mqtt
+from mqtt import mqtt, mqtt_connected
 from routes import base, config, calendar, knx
 from routes.knx import save_event
 
@@ -21,6 +21,16 @@ import users
 from users import auth_backend, current_active_admin, fastapi_users, bearer_transport
 
 from misc import authenticate_token, logger
+
+async def _connect_mqtt():
+    while True:
+        try:
+            await asyncio.wait_for(mqtt.mqtt_startup(), timeout=10)
+            return
+        except Exception as e:
+            logger.error('MQTT broker unavailable (%s); retrying in 10s', e)
+            await asyncio.sleep(10)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -52,17 +62,16 @@ async def lifespan(app: FastAPI):
             User,
         ],
     )
-    try:
-        await asyncio.wait_for(mqtt.mqtt_startup(), timeout=10)
-    except Exception as e:
-        logger.error(
-            'MQTT broker unavailable at startup (%s); continuing, gmqtt will retry', e)
+    # gmqtt reconnects only after a first successful connect, so retry the first
+    # one in the background until the broker answers; /healthcheck stays 503 meanwhile.
+    mqtt_retry = asyncio.create_task(_connect_mqtt())
     # Start the NetBox DataLoader bound to the RUNNING server loop. Must be done
     # here (not at import): uvicorn 0.47+ eagerly imports the app before the loop
     # exists, so an import-time get_event_loop() would bind a dead loop and the
     # data-refresh broadcast/MQTT publish would silently never fire.
     base.start_dataloader(asyncio.get_running_loop())
     yield
+    mqtt_retry.cancel()
     base.stop_dataloader()
     with suppress(Exception):
         await mqtt.mqtt_shutdown()
@@ -131,7 +140,10 @@ async def data_refresh():
 
 
 @app.get('/healthcheck')
-def healthcheck():
+def healthcheck(response: Response):
+    if not mqtt_connected():
+        response.status_code = 503
+        return 'mqtt disconnected'
     return 'ok'
 
 

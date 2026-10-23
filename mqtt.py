@@ -2,7 +2,7 @@ import os
 import ssl
 
 from fastapi_mqtt import FastMQTT, MQTTConfig
-from gmqtt.mqtt.constants import MQTTv311
+from gmqtt.mqtt.constants import MQTTv311, UNLIMITED_RECONNECTS
 
 CA_CERTIFICATE = '/opt/tls/ca_certificate.pem'
 CLIENT_CERTIFICATE = '/opt/tls/client_certificate.pem'
@@ -16,13 +16,22 @@ mqtt_config = MQTTConfig(
     port=8883,
     keepalive=60,
     ssl=ssl_context,
-    version=MQTTv311
+    version=MQTTv311,
+    # fastapi-mqtt defaults to a single reconnect attempt; keep gmqtt retrying.
+    reconnect_retries=UNLIMITED_RECONNECTS,
 )
 
 mqtt = FastMQTT(
     config=mqtt_config,
     client_id='api'
 )
+
+
+def mqtt_connected() -> bool:
+    try:
+        return mqtt.client.is_connected
+    except AttributeError:  # no connection object before the first connect
+        return False
 
 
 @mqtt.on_connect()

@@ -10,5 +10,8 @@ RUN pip install --no-cache-dir --upgrade \
 	pydantic==1.10.7 \
 	uvicorn==0.22.0 \
 	python-dateutil==2.8.2 \
-    git+https://github.com/devon-mar/pynetbox@openapi-3.5
+ 	PyYAML==6.0.2 \
+	bcrypt==4.0.1 \
+	fastapi-users-db-beanie==3.0.0 \
+    	pynetbox==7.4.1
 WORKDIR /api
